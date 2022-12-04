@@ -3,16 +3,14 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Models\Order;
-use App\Http\Requests\StoreOrderRequest;
-use App\Http\Requests\UpdateOrderRequest;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Customer\Delete\DeleteCustomerRequest;
+use App\Http\Requests\Customer\Get\GetCustomerBasicRequest;
 use App\Http\Resources\V1\OrderListCollection;
-use App\Http\Resources\V1\OrderDetailResource;
-use App\Models\Customer;
+use App\Http\Resources\V1\ProductDetailResource;
 use App\Models\Product;
-use Illuminate\Database\Eloquent\Builder;
+use App\Models\Voucher;
 use Illuminate\Http\Request;
-use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 
 class OrderController extends Controller
@@ -22,124 +20,28 @@ class OrderController extends Controller
      *
      * @return \Illuminate\Http\Response
      */
-    public function index(Request $request)
+
+    public function index(GetCustomerBasicRequest $request)
     {
-        $check = Customer::find($request->user()->id);
-
-        // Will fix this later when i figure out the other way
-        if ($check->token == null) {
-            return response()->json([
-                "success" => false,
-                "errors" => "You have no permission here"
-            ]);
-        }
-
-        $data = Order::where("customer_id", "=", $request->user()->id)->get();
-        $count = $data->count();
+        $data = Order::where("customer_id", "=", $request->user()->id);
+        $count = $data->get()->count();
 
         if (empty($count)) {
             return response()->json([
                 'success' => false,
-                "errors" => "There is no orders"
+                "errors" => "Danh sách đơn hàng hiện đang trống."
             ]);
         }
 
-        return response()->json([
-            "success" => true,
-            "data" => new OrderListCollection($data)
-        ]);
-        // return $data;
+        return new OrderListCollection($data->paginate(12));
+
+        // return response()->json([
+        //     "success" => true,
+        //     "data" => new OrderListCollection($data->paginate(10))
+        // ]);
     }
 
-    /**
-     * Store a newly created resource in storage.
-     *
-     * @param  \App\Http\Requests\StoreOrderRequest  $request
-     * @return \Illuminate\Http\Response
-     */
-
-    public function store(StoreOrderRequest $request)
-    {
-        $customer = Customer::find($request->user()->id);
-
-        // Need to reconsider this IF Condition
-        if (empty($customer)) {
-            return response()->json([
-                "success" => false,
-                "errors" => "Customer ID is invalid"
-            ]);
-        }
-
-        $data = DB::table("customer_product_cart")
-            ->where("customer_id", "=", $customer->id)->get();
-            
-        if ($data->count() === 0) {
-            return response()->json([
-                "success" => false,
-                "errors" => "Your cart is empty or Your Order is currently in progress"
-            ]);
-        }
-
-        $arr = [];
-        $total_price = 0;
-
-        for ($i = 0; $i < sizeof($data); $i++) {
-            $value = DB::table("products")
-                ->where("id", "=", $data[$i]->product_id)->first();
-
-            $arr[$i]['product_id'] = $value->id;
-            $arr[$i]['quantity'] = $data[$i]->quantity;
-            $arr[$i]['price'] = $value->price;
-            $arr[$i]['percent_sale'] = $value->percent_sale;
-            $sale_price = $value->price * $value->percent_sale / 100;
-            $total_price = $total_price + (($value->price - $sale_price) * $data[$i]->quantity);
-        }
-
-        $voucher_sale = DB::table("vouchers")
-            ->where("id", "=", $request->voucher_id)
-            ->first();
-
-        $filtered = $request->except("voucherId", "dateOrder", "nameReceiver", "phoneReceiver", "paidType");
-        $filtered["customer_id"] = $request->user()->id;
-        $filtered["total_price"] = $total_price - (($total_price * $voucher_sale->percent) / 100);
-
-        $check = Order::create($filtered);
-
-        // Check if data insert to database isSuccess
-        if (empty($check->id)) {
-            return response()->json([
-                "success" => false,
-                "errors" => "Something went wrong"
-            ]);
-        }
-
-        $order = Order::find($check->id);
-
-        // Insert data into intermediate table (order_product)
-        for ($i = 0; $i < sizeof($arr); $i++) {
-            $productId = Product::find($arr[$i]["product_id"]);
-            $confirm = $order->products()->attach($productId, [
-                "quantity" => $arr[$i]["quantity"],
-                "price" => $arr[$i]["price"],
-                "percent_sale" => $arr[$i]['percent_sale']
-            ]);
-        }
-
-        // Detach data from intermediate table (customer_product_cart)
-        $detach = $customer->customer_product_cart()->detach();
-
-        if(empty($detach)) {
-            return response()->json([
-                "success" => false,
-                "errors" => "Something went wrong"
-            ]);
-        }
-
-        return response()->json([
-            "success" => true,
-            "message" => "Placed order successfully"
-        ]);
-    }
+    /** END OF PLACE ORDER FUNCTION */
 
     /**
      * Display the specified resource.
@@ -149,33 +51,36 @@ class OrderController extends Controller
      */
 
     // Can't check order id is existed in database for some
-    public function show(Request $request)
+    public function show(GetCustomerBasicRequest $request)
     {
-        $check = Customer::find($request->user()->id);
+        // $check = Customer::find($request->user()->id);
 
-        $product_array = [];
-        $index = 0;
+        // Check Order isExists
+        $query = Order::where("orders.id", "=", $request->id)
+            ->where("customer_id", "=", $request->user()->id);
 
-        // Will fix this later when i figure out the other way
-        if ($check->{"token"} == null) {
+
+        if (!$query->exists()) {
             return response()->json([
                 "success" => false,
-                "errors" => "You have no permission here"
+                "errors" => "Đơn hàng không tồn tại."
             ]);
         }
 
-        // Check Order isExists
-        $data = Order::where("orders.id", "=", $request->id)
-            ->addSelect("orders.*", "vouchers.id as voucher_id", "vouchers.name", "vouchers.percent")
-            ->where("customer_id", "=", $request->user()->id)
-            ->join("vouchers", "orders.voucher_id", "=", "vouchers.id")
-            ->first();
+        $data = $query->first();
 
-        if (empty($data)) {
-            return response()->json([
-                "success" => false,
-                "errors" => "Something went wrong - Please recheck your Customer ID and Order ID"
-            ]);
+        if ($data->voucher_id !== null) {
+            $voucher = Voucher::where("id", "=", $data->voucher_id)->first();
+
+            $voucher_data = [
+                "voucherId" => $voucher->voucher_id,
+                "percent" => $voucher->percent,
+                "name" => $voucher->name,
+                "expiredDate" => $voucher->expired_date,
+                "deleted" => $voucher->deleted,
+            ];
+        } else {
+            $voucher_data = null;
         }
 
         // Create product array
@@ -183,11 +88,34 @@ class OrderController extends Controller
 
         $data["products"] = $pivot_table->products;
 
-        // dd($data);
-
         return response()->json([
             "success" => true,
-            "data" => new OrderDetailResource($data)
+            "data" => [
+                "customer" => [
+                    "customerId" => $request->user()->id,
+                    "firstName" => $request->user()->first_name,
+                    "lastName" => $request->user()->last_name,
+                    "email" => $request->user()->email,
+                    "avatar" => $request->user()->avatar,
+                    "defaultAvatar" => $request->user()->default_avatar,
+                ],
+                "voucher" => $voucher_data,
+                "order" => [
+                    "id" => $data->id,
+                    "idDelivery" => $data->id_delivery,
+                    "dateOrder" => $data->date_order,
+                    "address" => $data->address,
+                    "nameReceiver" => $data->name_receiver,
+                    "phoneReceiver" => $data->phone_receiver,
+                    "totalPrice" => $data->total_price,
+                    "status" => $data->status,
+                    "paidType" => $data->paid_type,
+                    "deleted_by" => $data->deleted_by,
+                    "createdAt" => date_format($data->created_at, "d/m/Y H:i:s"),
+                    "updatedAt" => date_format($data->updated_at, "d/m/Y H:i:s"),
+                ],
+                "products" => ProductDetailResource::collection($data->products)
+            ]
         ]);
     }
 
@@ -197,18 +125,26 @@ class OrderController extends Controller
      * @param  \App\Models\Order  $order
      * @return \Illuminate\Http\Response
      */
-    public function destroy(Request $request)
+    public function destroy(DeleteCustomerRequest $request)
     {
-        $customer = Customer::find($request->user()->id);
+        // $customer = Customer::find($request->user()->id);
 
-        $order = Order::where("id", "=", $request->id)
-            ->where("customer_id", "=", $customer->id)
-            ->first();
+        $query = Order::where("id", "=", $request->id)
+            ->where("customer_id", "=", $request->user()->id);
 
-        if (empty($order)) {
+        if (!$query->exists()) {
             return response()->json([
                 "success" => false,
-                "errors" => "Order ID is invalid"
+                "errors" => "Đơn hàng không tồn tại."
+            ]);
+        }
+
+        $order = $query->first();
+
+        if ($order->deleted_by !== null) {
+            return response()->json([
+                "success" => false,
+                "errors" => "Đơn hàng đã bị hủy."
             ]);
         }
 
@@ -220,16 +156,86 @@ class OrderController extends Controller
         if (!$result) {
             return response()->json([
                 "success" => false,
-                "errors" => "An unexpected error has occurred"
+                "errors" => "Đã có lỗi xảy ra trong quá trình vận hành!!"
             ]);
         }
 
         return response()->json(
             [
                 'success' => true,
-                // "data" => $data
-                'errors' => "Sucessfully canceled Order ID = " . $request->id
+                'message' => "Thành công việc hủy Đơn hàng với ID = " . $query->first()->id_delivery
             ]
         );
+    }
+
+    public function updateStatus(GetCustomerBasicRequest $request)
+    {
+        $query = Order::where("id", "=", $request->id)
+            ->where("customer_id", "=", $request->user()->id);
+
+        // Check connection between Customer and Order
+        if (!$query->exists()) {
+            return response()->json([
+                "success" => false,
+                "errors" => "Đơn hàng không tồn tại."
+            ]);
+        }
+
+        $order = $query->first();
+
+        // We only allow customer to change Order Status to Completed state
+        if ($order->status === 2) {
+            return response()->json([
+                "success" => false,
+                "errors" => "Đơn hàng này đã được chuyển sang trạng thái hoàn tất."
+            ]);
+        }
+
+        $products = DB::table("order_product")
+            ->where("order_id", "=", $order->id)->get();
+
+        if ($products->count() === 0) {
+            return response()->json([
+                "success" => false,
+                "errors" => "TẠI SAO ĐƠN HÀNG KHÔNG CÓ SẢN PHẨM?? ALO??"
+            ]);
+        }
+
+        $order->status = 2;
+        // $order_detach = Order::find($request->id); // Create this to only
+
+        // Descrease Product Quantity
+        for ($i = 0; $i < sizeof($products); $i++) {
+            $product = Product::find($products[$i]->product_id);
+
+            $remain = $product->quantity - $products[$i]->quantity; // Remain quantity after decrease
+            if ($remain <= 0) { // If Remain Quantity is less equal than 0 then set it to out of stock
+                $product->quantity = 0;
+                $product->status = 0;
+            } else { // If not then nope
+                $product->quantity = $remain;
+            }
+
+            $product->save();
+        }
+
+        $result = $order->save();
+
+        if (empty($result)) {
+            return response()->json([
+                "success" => false,
+                "errors" => "Đã có lỗi xảy ra trong quá trình vận hành!!"
+            ]);
+        }
+
+        return response()->json([
+            "success" => true,
+            "message" => "Cập nhật thành công Đơn hàng sang trạng thái Hoàn tất"
+        ]);
+
+        /**
+         * Save Order new Status
+         * Decrease all Product quantity in from Order
+         */
     }
 }

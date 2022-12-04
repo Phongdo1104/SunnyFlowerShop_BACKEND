@@ -19,11 +19,12 @@ class ProductListResource extends JsonResource
             "name" => $this->name,
             // "description" => $this->description,
             "price" => $this->price,
-            "precentSale" => $this->percent_sale,
+            "percentSale" => $this->percent_sale,
             "img" => $this->img,
-            // "quantity" => $this->quantity,
-            // "status" => $this->status,
+            "quantity" => $this->quantity,
+            "status" => $this->status,
             "deletedAt" => $this->deleted_at,
+            "createdAt" => date_format($this->created_at, "d/m/Y"),
             "categories" => CategoryListResource::collection($this->categories)
         ];
     }

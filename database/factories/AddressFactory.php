@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Models\Customer;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
@@ -17,7 +18,9 @@ class AddressFactory extends Factory
     public function definition()
     {
         return [
-            "name_receiver" => $this->faker->name(),
+            "customer_id" => Customer::factory(),
+            "first_name_receiver" => $this->faker->firstName(),
+            "last_name_receiver" => $this->faker->lastName(),
             "phone_receiver" => $this->faker->tollFreePhoneNumber(),
             "street_name" => $this->faker->streetName(),
             "district" => $this->faker->buildingNumber(), // I have no idea why i use this

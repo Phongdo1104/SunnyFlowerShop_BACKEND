@@ -20,9 +20,11 @@ class CustomerDetailResource extends JsonResource
             "lastName" => $this->last_name,
             "email" => $this->email,
             "avatar" => $this->avatar,
-            "phoneNumber" => $this->phone_number,
-            "token" => $this->token, // This column will be potentially be removed
-            "createdAt" => $this->created_at,
+            "defaultAvatar" => $this->default_avatar,
+            "subscribed" => $this->subscribed,
+            "disabled" => $this->disabled,
+            "createdAt" => date_format($this->created_at, "d/m/Y"),
+            "updatedAt" => date_format($this->updated_at, "d/m/Y"),
         ];
     }
 }

@@ -3,78 +3,118 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Http\Controllers\Controller;
-use App\Http\Resources\V1\ProductListCollection;
+use App\Http\Requests\Customer\Delete\DeleteCustomerRequest;
+use App\Http\Requests\Customer\Get\GetCustomerBasicRequest;
+use App\Models\Category;
 use App\Models\Customer;
 use App\Models\Product;
 use Illuminate\Http\Request;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 
 class FavoriteController extends Controller
 {
-    public function viewFavorite(Request $request)
+    public function paginator($arr, $request)
     {
-        $customer = Customer::find($request->user()->id);
+        $total = count($arr);
+        $per_page = 10;
+        $current_page = $request->input("page") ?? 1;
 
-        $data = DB::table("customer_product_favorite")
-            ->where("customer_id", "=", $customer->id)
-            ->first();
+        $starting_point = ($current_page * $per_page) - $per_page;
 
-        if (empty($data)) {
+        $arr = array_slice($arr, $starting_point, $per_page, true);
+
+        $arr = new LengthAwarePaginator($arr, $total, $per_page, $current_page, [
+            'path' => $request->url(),
+            'query' => $request->query(),
+        ]);
+
+        return $arr;
+    }
+
+    public function viewFavorite(GetCustomerBasicRequest $request)
+    {
+        $favorite_products = DB::table("customer_product_favorite")
+            ->where("customer_id", "=", $request->user()->id)->get();
+
+        if ($favorite_products->count() === 0) {
             return response()->json([
                 "success" => false,
-                "message" => "This user hasn't added any product to favorite yet"
+                "message" => "Chưa có sản phẩm nào được thêm vào mục yêu thích."
             ]);
         }
 
-        return response()->json([
-            "success" => true,
-            "customerId" => $customer->id,
-            "data" => new ProductListCollection($customer->customer_product_favorite)
-        ]);
+        $data = [];
+        // First loop for get all favorite product from pivot table
+        for ($i = 0; $i < sizeof($favorite_products); $i++) {
+            $product = Product::where("id", "=", $favorite_products[$i]->product_id)->first();
+
+            // Get all category connect to product
+            $categories = DB::table("category_product")
+                ->where("product_id", "=", $product->id)
+                ->get();
+
+            $data[$i]['id'] = $product->id;
+            $data[$i]['name'] = $product->name;
+            $data[$i]['price'] = $product->price;
+            $data[$i]['percentSale'] = $product->percent_sale;
+            $data[$i]['quantity'] = $product->quantity;
+            $data[$i]['status'] = $product->status;
+            $data[$i]['deletedAt'] = $product->deleted_at;
+
+            for ($j = 0; $j < sizeof($categories); $j++) { // Second loop for category
+                $category = Category::where("id", "=", $categories[$j]->category_id)->first();
+                
+                $data[$i]['categories'][$j]['id'] = $category->id;
+                $data[$i]['categories'][$j]['name'] = $category->name;
+            }
+        }
+
+        return $this->paginator($data, $request);
     }
 
-    public function storeFavorite(Request $request)
+    public function storeFavorite(GetCustomerBasicRequest $request)
     {
         $customer = Customer::find($request->user()->id);
 
         $product = Product::find($request->id);
 
-        $data = DB::table("customer_product_favorite")
+        $check = DB::table("customer_product_favorite")
             ->where("customer_id", "=", $customer->id)
             ->where("product_id", "=", $product->id)
-            ->first();
+            ->exists();
 
-        if (empty($data)) {
+        if (empty($check)) {
             $customer->customer_product_favorite()->attach($product);
 
             return response()->json([
                 "success" => true,
-                "message" => "Added Product to favorite successfully"
+                "message" => "Thêm sản phẩm vào mục yêu thích thành công."
             ]);
         }
 
         return response()->json([
             "success" => false,
-            "message" => "Product has already been added to favorite"
+            "message" => "Sản phẩm đã được thêm vào mục yêu thích."
         ]);
     }
 
-    public function destroyFavorite(Request $request)
+    public function destroyFavorite(DeleteCustomerRequest $request)
     {
         // $request->id is Product ID
         $customer = Customer::find($request->user()->id);
 
         $product = Product::find($request->id);
 
-        $data = DB::table("customer_product_favorite")
+        $check = DB::table("customer_product_favorite")
             ->where("customer_id", "=", $customer->id)
             ->where("product_id", "=", $product->id)
-            ->first();
+            ->exists();
 
-        if (empty($data)) {
+        if (empty($check)) {
             return response()->json([
                 "success" => false,
-                "errors" => "Can't remove an unexisted product from favorite"
+                "errors" => "Không thể xóa sản phẩm không tồn tại khỏi mục yêu thích."
             ]);
         }
 
@@ -83,18 +123,13 @@ class FavoriteController extends Controller
         if (empty($data)) {
             return response()->json([
                 "success" => false,
-                "errors" => "Something went wrong"
+                "errors" => "Đã có lỗi xảy ra trong quá trình vận hành."
             ]);
         }
 
         return response()->json([
             "success" => true,
-            "message" => "Removed product from favorite successfully"
+            "message" => "Xóa sản phẩm khỏi mục yêu thích thành công."
         ]);
-    }
-
-    // This function use when product in favorite section is purchased
-    public static function isPurchased(Request $request) {
-        return self::destroyFavorite($request);
     }
 }

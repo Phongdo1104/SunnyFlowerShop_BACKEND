@@ -13,7 +13,9 @@ class BulkInsertProductRequest extends FormRequest
      */
 
     public function authorize() {
-        return true;
+        $user = $this->user();
+
+        return $user != null && $user->tokenCan('create');
     }
 
     public function rules()
@@ -44,14 +46,20 @@ class BulkInsertProductRequest extends FormRequest
                 "required",
                 "integer"
             ],
-            "*.status" => [
+            "*.img" => [
                 "required",
-                "boolean",
+                "string",
             ],
             "*.categoryId" => [
                 "required",
                 "integer",
             ],
+            // "*.category" => [
+            //     "*.id" => [
+            //         "required",
+            //         "integer",
+            //     ]
+            // ],
         ];
     }
 
@@ -60,10 +68,8 @@ class BulkInsertProductRequest extends FormRequest
         $data = [];
 
         foreach ($this->toArray() as $obj) {
-            $obj['category_id'] = $obj['categoryId'] ?? null;
+            // $obj['category_id'] = $obj['categoryId'] ?? null;
             $obj['percent_sale'] = $obj['percentSale'] ?? null;
-            $obj['deleted_at'] = $obj['deletedAt'] ?? null;
-
             $data[] = $obj;
         }
 

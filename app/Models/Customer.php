@@ -4,13 +4,26 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Notifications\Notifiable;
 
 class Customer extends Model
 {
-    use HasFactory;
+    use HasFactory, Notifiable;
+
+    protected $fillable = [
+        "first_name",
+        "last_name",
+        "email",
+        "password",
+        "avatar",
+    ];
 
     public function addresses() {
-        return $this->belongsToMany(Address::class, "address_customer", "customer_id", "address_id")->withPivot("id");
+        return $this->hasMany(Address::class);
+    }
+
+    public function tokens() {
+        return $this->hasMany(Token::class);
     }
 
     public function orders() {
@@ -18,7 +31,7 @@ class Customer extends Model
     }
     
     public function customer_product_feedback() {
-        return $this->belongsToMany(Product::class, "customer_product_feedback", "customer_id", "product_id")->withPivot("id","quality", "comment");
+        return $this->belongsToMany(Product::class, "customer_product_feedback", "customer_id", "product_id")->withPivot("id","quality", "comment", "created_at", "updated_at");
     }
 
     public function customer_product_favorite() {

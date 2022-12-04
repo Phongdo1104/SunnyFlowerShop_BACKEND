@@ -3,9 +3,11 @@
 namespace App\Http\Controllers\Api\V1;
 
 use App\Models\Address;
-use App\Http\Requests\StoreAddressRequest;
-use App\Http\Requests\UpdateAddressRequest;
+use App\Http\Requests\Customer\Update\UpdateAddressRequest;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Customer\Delete\DeleteCustomerRequest;
+use App\Http\Requests\Customer\Get\GetCustomerBasicRequest;
+use App\Http\Requests\Customer\Store\StoreAddressRequest;
 use App\Http\Resources\V1\AddressDetailResource;
 use App\Http\Resources\V1\AddressOverviewCollection;
 use App\Http\Resources\V1\AddressOverviewResource;
@@ -20,16 +22,23 @@ class AddressController extends Controller
      *
      * @return \Illuminate\Http\Response
      */
-    public function index(Request $request)
+    public function index(GetCustomerBasicRequest $request)
     {
-        $customer = Customer::find($request->user()->id);
+        $address = Address::where("customer_id", "=", $request->user()->id);
 
-        $data = $customer->addresses;
+        if (!$address->exists()) {
+            return response()->json([
+                "success" => false,
+                "errors" => "Người dùng chưa tạo địa chỉ nào."
+            ]);
+        }
 
-        return response()->json([
-            "success" => true,
-            "data" => new AddressOverviewCollection($data)
-        ]);
+        return new AddressOverviewCollection($address->paginate(10));
+
+        // return response()->json([
+        //     "success" => true,
+        //     "data" => new AddressOverviewCollection($address->get())
+        // ]);
     }
 
     /**
@@ -40,42 +49,39 @@ class AddressController extends Controller
      */
     public function store(StoreAddressRequest $request)
     {
-        $check = Address::where("street_name", $request->streetName)
+        // $customer = Customer::find($request->user()->id);
+
+        $check = Address::where("customer_id", "=", $request->user()->id)
+            ->where("first_name_receiver", "=", $request->firstNameReceiver)
+            ->where("last_name_receiver", "=", $request->lastNameReceiver)
+            ->where("street_name", $request->streetName)
             ->where("district", $request->district)
             ->where("ward", $request->ward)
-            ->where("city", $request->city)->get()->count();
+            ->where("city", $request->city)->exists();
 
-        if ($check !== 0) {
+        if ($check) {
             return response()->json([
                 "success" => false,
-                "errors" => "Address is already existed"
+                "errors" => "Địa chỉ đã tồn tại."
             ]);
         }
 
-        $filtered = $request->except(['nameReceiver', "phoneReceiver", 'streetName']);
-
-        $customer = Customer::find($request->user()->id);
-
-        if (empty($customer)) {
-            return response()->json([
-                "success" => false,
-                "errors" => "An unexpected error has occurred - Customer doesn't exist"
-            ]);
-        }
+        $filtered = $request->except(['firstNameReceiver', 'lastNameReceiver', "phoneReceiver", 'streetName']);
+        $filtered['customer_id'] = $request->user()->id;
 
         $data = Address::create($filtered);
         if (empty($data->id)) {
             return response()->json([
                 "success" => false,
-                "errors" => "An unexpected error has occurred"
+                "errors" => "Đã có lỗi xảy ra trong quá trình vận hành!!"
             ]);
         }
 
-        $data->customers()->attach($customer);
+        // $data->customers()->attach($customer);
 
         return response()->json([
             "success" => true,
-            "message" => "Created Address successfully"
+            "message" => "Tạo địa chỉ thành công."
         ]);
     }
 
@@ -85,23 +91,29 @@ class AddressController extends Controller
      * @param  \App\Models\Address  $address
      * @return \Illuminate\Http\Response
      */
-    public function show(Request $request)
+    public function show(GetCustomerBasicRequest $request)
     {
-        $customer = Customer::find($request->user()->id);
+        // $customer = Customer::find($request->user()->id);
 
         // For some reason, i can't use normal Many-to-Many relationship query
-        $data = DB::table("address_customer")
-            ->where("address_id", "=", $request->id)
-            ->where("customer_id", "=", $customer->id)
-            ->join("addresses", "address_customer.id", "=", "addresses.id")
-            ->first();
+        $query = Address::where("id", "=", $request->id)
+            ->where("customer_id", "=", $request->user()->id);
+        // $query = DB::table("address_customer")
+        //     ->where("address_id", "=", $request->id)
+        //     ->where("customer_id", "=", $customer->id)
+        //     ->join("addresses", "address_customer.id", "=", "addresses.id");
 
-        if (empty($data) || empty($customer)) {
+        $check = $query->exists();
+
+        if (empty($check)) {
+            // if (empty($check)) {
             return response()->json([
                 "success" => false,
-                "errors" => "Something went wrong - Either customer id or address id doesn't exist"
+                "errors" => "Địa chỉ không tồn tại."
             ]);
         }
+
+        $data = $query->first();
 
         return response()->json([
             "success" => true,
@@ -118,27 +130,48 @@ class AddressController extends Controller
      */
     public function update(UpdateAddressRequest $request, $addressId)
     {
-        $customer = Customer::find($request->user()->id);
+        // $customer = Customer::find($request->user()->id);
 
         // For some reason, i can't use normal Many-to-Many relationship query
-        $data = DB::table("address_customer")
-            ->where("address_id", "=", $request->id)
-            ->where("customer_id", "=", $customer->id)
-            ->join("addresses", "address_customer.id", "=", "addresses.id")
-            ->first();
+        // $check = DB::table("address_customer")
+        //     ->where("address_id", "=", $request->id)
+        //     ->where("customer_id", "=", $customer->id)
+        //     ->exists();
 
-        if (empty($data) || empty($customer)) {
+        $query = Address::where("id", "=", $addressId)
+            ->where("customer_id", "=", $request->user()->id);
+
+        if (!$query->exists()) {
             return response()->json([
                 "success" => false,
-                "errors" => "Something went wrong - Either customer_id or address_id is invalid"
+                "errors" => "Địa chỉ ID không hợp lệ."
             ]);
         }
-        
-        $filtered = $request->except(['nameReceiver', "phoneReceiver", 'streetName']);
 
-        $address = Address::find($addressId);
+        // Check address existence in database
+        $check = Address::where("customer_id", "=", $request->user()->id)
+            ->where("first_name_receiver", "=", $request->firstNameReceiver)
+            ->where("last_name_receiver", "=", $request->lastNameReceiver)
+            ->where("street_name", $request->streetName)
+            ->where("district", $request->district)
+            ->where("ward", $request->ward)
+            ->where("city", $request->city)
+            ->exists();
 
-        foreach($filtered as $key => $value) {
+        // If address is existed, then check does it belong to current customer is updating their address
+        if ($check) {
+            return response()->json([
+                "success" => false,
+                "errors" => "Địa chỉ đã được liên kết với tài khoản này."
+            ]);
+        }
+
+        $filtered = $request->except(['firstNameReceiver', 'lastNameReceiver', "phoneReceiver", 'streetName']);
+        $filtered['customer_id'] = $request->user()->id;
+
+        $address = $query->first();
+
+        foreach ($filtered as $key => $value) {
             $address->{$key} = $value;
         }
 
@@ -147,13 +180,13 @@ class AddressController extends Controller
         if (!$result) {
             return response()->json([
                 'success' => false,
-                "errors" => "An unexpected error has occurred"
+                "errors" => "Đã có lỗi xảy ra trong quá trình vận hành!!"
             ]);
         }
 
         return response()->json([
             'success' => true,
-            "data" => $address
+            "message" => "Cập nhật thông tin địa chỉ thành công."
         ]);
     }
 
@@ -163,26 +196,30 @@ class AddressController extends Controller
      * @param  \App\Models\Address  $address
      * @return \Illuminate\Http\Response
      */
-    public function destroy(Request $request)
+    public function destroy(DeleteCustomerRequest $request)
     {
-        $customer = Customer::find($request->user()->id);
+        // $customer = Customer::find($request->user()->id);
 
-        $data = DB::table("address_customer")
-            ->where("address_id", "=", $request->id)
-            ->where("customer_id", "=", $customer->id)
-            ->first();
+        // $check = DB::table("address_customer")
+        //     ->where("address_id", "=", $request->id)
+        //     ->where("customer_id", "=", $customer->id)
+        //     ->exists();
 
-        if (empty($data)) {
+        $check = Address::where("id", "=", $request->id)
+            ->where("customer_id", "=", $request->user()->id)
+            ->exists();
+
+        if (empty($check)) {
             return response()->json([
-                "success" => true,
-                "errors" => "Something went wrong - Either customer_id or address_id is invalid"
+                "success" => false,
+                "errors" => "Địa chỉ không tồn tại."
             ]);
         }
 
-        $address = Address::find($request->id);
+        $address = Address::where("id", "=", $request->id)
+            ->where("customer_id", "=", $request->user()->id);
 
-        $customer->addresses()->detach($address);
-
+        // $customer->addresses()->detach($address);
         $address->delete();
 
         $check = Address::where("id", "=", $request->id)->first();
@@ -190,13 +227,13 @@ class AddressController extends Controller
         if (empty($check)) {
             return response()->json([
                 "success" => true,
-                "message" => "Deleted address successfully"
+                "message" => "Xóa địa chỉ thành công."
             ]);
         }
-        
+
         return response()->json([
             "success" => false,
-            "errors" => "An unexpected error has occurred"
+            "errors" => "Đã có lỗi xảy ra trong quá trình vận hành!!"
         ]);
     }
 }

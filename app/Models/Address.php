@@ -10,7 +10,9 @@ class Address extends Model
     use HasFactory;
 
     protected $fillable = [
-        "name_receiver",
+        "customer_id",
+        "first_name_receiver",
+        "last_name_receiver",
         "phone_receiver",
         "street_name",
         "district",
@@ -19,6 +21,6 @@ class Address extends Model
     ];
 
     public function customers() {
-        return $this->belongsToMany(Customer::class, "address_customer", "customer_id", "address_id")->withPivot("id");
+        return $this->belongsTo(Customer::class);
     }
 }
